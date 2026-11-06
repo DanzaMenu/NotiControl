@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Outer glow: fading concentric rings (red) -->
+    <path
+        android:pathData="M50,50 m-50,0 a50,50 0 1,0 100,0 a50,50 0 1,0 -100,0"
+        android:fillColor="#0AEF5350" />
+    <path
+        android:pathData="M50,50 m-47,0 a47,47 0 1,0 94,0 a47,47 0 1,0 -94,0"
+        android:fillColor="#10EF5350" />
+    <path
+        android:pathData="M50,50 m-44,0 a44,44 0 1,0 88,0 a44,44 0 1,0 -88,0"
+        android:fillColor="#18EF5350" />
+
+    <!-- Ring stroke -->
+    <path
+        android:pathData="M50,50 m-38,0 a38,38 0 1,0 76,0 a38,38 0 1,0 -76,0"
+        android:fillColor="#00000000"
+        android:strokeColor="#26EF9A9A"
+        android:strokeWidth="0.8" />
+
+    <!-- Core: edge darkening -->
+    <path
+        android:pathData="M50,50 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0"
+        android:fillColor="#5CB71C1C" />
+
+    <!-- Core: main fill -->
+    <path
+        android:pathData="M50,50 m-29,0 a29,29 0 1,0 58,0 a29,29 0 1,0 -58,0"
+        android:fillColor="#CCEF5350" />
+
+    <!-- Core: border stroke -->
+    <path
+        android:pathData="M50,50 m-29,0 a29,29 0 1,0 58,0 a29,29 0 1,0 -58,0"
+        android:fillColor="#00000000"
+        android:strokeColor="#55FF8A80"
+        android:strokeWidth="0.6" />
+
+    <!-- Bell off (NotificationsOff) pre-transformed to center at 50,50 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60.00,58.36L44.80,42.67 40.34,38.21 38.75,39.80l2.61,2.61C40.50,43.77 40.00,45.58 40.00,47.50v6.25l-2.50,2.50v1.25h17.16l2.50,2.50L58.75,58.55l1.25,-1.44zM50.00,63.75c1.38,0.00 2.50,-1.12 2.50,-2.50h-5.00c0.00,1.38 1.12,2.50 2.50,2.50zM57.50,47.50c0.00,-3.84 -2.04,-7.05 -5.62,-7.90V38.75c0.00,-1.04 -0.84,-1.88 -1.88,-1.88S48.12,37.71 48.12,38.75v0.85c-1.23,0.29 -2.34,0.85 -3.29,1.62L57.50,55.04V47.50z" />
+
+</vector>

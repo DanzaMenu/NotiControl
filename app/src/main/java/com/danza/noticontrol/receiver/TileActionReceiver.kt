@@ -6,6 +6,7 @@ import android.content.Intent
 import com.danza.noticontrol.data.AppDatabase
 import com.danza.noticontrol.data.SilenceSession
 import com.danza.noticontrol.service.NotiListenerService
+import com.danza.noticontrol.widget.SilenceWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,6 +49,10 @@ class TileActionReceiver : BroadcastReceiver() {
                 }
             }
         }
+        // Refresh widget state after any toggle
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            SilenceWidget.refreshAllWidgets(context)
+        }, 300)
     }
 
     companion object {

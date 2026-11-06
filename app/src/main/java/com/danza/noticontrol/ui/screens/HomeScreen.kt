@@ -7,6 +7,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,10 +37,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import com.danza.noticontrol.data.SilencedNotification
 import com.danza.noticontrol.ui.theme.*
+import com.danza.noticontrol.updater.AppUpdater
+import com.danza.noticontrol.updater.UpdateInfo
 import com.danza.noticontrol.viewmodel.ActiveSilence
 import com.danza.noticontrol.viewmodel.MainViewModel
+import com.danza.noticontrol.widget.SilenceWidget
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -63,6 +71,86 @@ fun HomeScreen(
     // Keep live notifications loaded for the active session
     LaunchedEffect(activeSilence?.sessionId) {
         activeSilence?.let { viewModel.loadNotificationsForSession(context, it.sessionId) }
+    }
+
+    // Auto-update check
+    var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var isDownloading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        val info = AppUpdater.checkForUpdate(context)
+        if (info != null) {
+            updateInfo = info
+            showUpdateDialog = true
+        }
+    }
+
+    if (showUpdateDialog && updateInfo != null) {
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            containerColor = Color(0xFF0D1B2E),
+            title = {
+                Text(
+                    "Update Available",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        "v${updateInfo!!.latestVersion} is available (you have v${AppUpdater.getCurrentVersion(context)})",
+                        color = Color.White.copy(0.85f),
+                        fontSize = 14.sp
+                    )
+                    if (updateInfo!!.releaseNotes.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            updateInfo!!.releaseNotes,
+                            color = Color.White.copy(0.5f),
+                            fontSize = 12.sp
+                        )
+                    }
+                    if (isDownloading) {
+                        Spacer(Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = AccentBlue
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text("Downloading…", color = Color.White.copy(0.5f), fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isDownloading = true
+                        scope.launch {
+                            try {
+                                AppUpdater.downloadAndInstall(context, updateInfo!!.downloadUrl)
+                            } catch (_: Exception) {
+                                android.widget.Toast.makeText(context, "Download failed", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            isDownloading = false
+                            showUpdateDialog = false
+                        }
+                    },
+                    enabled = !isDownloading
+                ) {
+                    Text("Update", color = if (isDownloading) Color.Gray else AccentBlue, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                if (!isDownloading) {
+                    TextButton(onClick = { showUpdateDialog = false }) {
+                        Text("Later", color = Color.White.copy(0.5f))
+                    }
+                }
+            }
+        )
     }
 
     var showCustomPicker by remember { mutableStateOf(false) }
@@ -182,15 +270,54 @@ fun HomeScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            // Orb — tap to toggle indefinite silence
+            var showPinDialog by remember { mutableStateOf(false) }
+
+            if (showPinDialog) {
+                AlertDialog(
+                    onDismissRequest = { showPinDialog = false },
+                    containerColor = Color(0xFF0D1B2E),
+                    title = { Text("Add to Home Screen", color = Color.White, fontWeight = FontWeight.Bold) },
+                    text = { Text("Add the Noti Control bell to your home screen as a widget?", color = Color.White.copy(0.7f)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showPinDialog = false
+                            val manager = AppWidgetManager.getInstance(context)
+                            val provider = ComponentName(context, SilenceWidget::class.java)
+                            if (manager.isRequestPinAppWidgetSupported) {
+                                val successIntent = android.app.PendingIntent.getBroadcast(
+                                    context, 0,
+                                    android.content.Intent("com.danza.noticontrol.WIDGET_PINNED").setPackage(context.packageName),
+                                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                                )
+                                manager.requestPinAppWidget(provider, null, successIntent)
+                                android.widget.Toast.makeText(context, "Widget added — check your home screen pages", android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                android.widget.Toast.makeText(context, "Long-press your home screen → Widgets → Noti Control", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }) { Text("Add", color = AccentBlue, fontWeight = FontWeight.Bold) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPinDialog = false }) {
+                            Text("Cancel", color = Color.White.copy(0.5f))
+                        }
+                    }
+                )
+            }
+
+            // Orb — tap to toggle indefinite silence, long-press to pin widget
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .clickable {
-                        when {
-                            isOrbMode -> viewModel.endSilenceEarly(context)
-                            !isSilenced -> viewModel.startOrbSilence(context)
-                        }
+                    .pointerInput(isSilenced, isOrbMode) {
+                        detectTapGestures(
+                            onTap = {
+                                when {
+                                    isOrbMode -> viewModel.endSilenceEarly(context)
+                                    !isSilenced -> viewModel.startOrbSilence(context)
+                                }
+                            },
+                            onLongPress = { showPinDialog = true }
+                        )
                     }
             ) {
                 PulsingOrb(orbState = when {
