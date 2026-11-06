@@ -96,9 +96,10 @@ class MainViewModel : ViewModel() {
             NotiListenerService.highImportancePackages.collect { _highImportancePackages.value = it }
         }
 
-        // Sync tile-triggered silence into UI
+        // Sync tile/widget-triggered silence into UI and refresh widgets
         viewModelScope.launch {
             NotiListenerService.isSilencingFlow.collect { silencing ->
+                com.danza.noticontrol.widget.SilenceWidget.refreshAllWidgets(context)
                 if (silencing && _activeSilence.value == null) {
                     // Tile just started a session — find it in DB and show it
                     val active = dao.getActiveSession(System.currentTimeMillis())

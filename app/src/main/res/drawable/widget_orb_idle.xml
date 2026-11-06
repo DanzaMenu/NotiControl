@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Outer glow: fading concentric rings -->
+    <path
+        android:pathData="M50,50 m-50,0 a50,50 0 1,0 100,0 a50,50 0 1,0 -100,0"
+        android:fillColor="#0A4FC3F7" />
+    <path
+        android:pathData="M50,50 m-47,0 a47,47 0 1,0 94,0 a47,47 0 1,0 -94,0"
+        android:fillColor="#104FC3F7" />
+    <path
+        android:pathData="M50,50 m-44,0 a44,44 0 1,0 88,0 a44,44 0 1,0 -88,0"
+        android:fillColor="#184FC3F7" />
+
+    <!-- Ring stroke -->
+    <path
+        android:pathData="M50,50 m-38,0 a38,38 0 1,0 76,0 a38,38 0 1,0 -76,0"
+        android:fillColor="#00000000"
+        android:strokeColor="#264FC3F7"
+        android:strokeWidth="0.8" />
+
+    <!-- Core: edge darkening -->
+    <path
+        android:pathData="M50,50 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0"
+        android:fillColor="#5C2196C7" />
+
+    <!-- Core: main fill -->
+    <path
+        android:pathData="M50,50 m-29,0 a29,29 0 1,0 58,0 a29,29 0 1,0 -58,0"
+        android:fillColor="#CC4FC3F7" />
+
+    <!-- Core: border stroke -->
+    <path
+        android:pathData="M50,50 m-29,0 a29,29 0 1,0 58,0 a29,29 0 1,0 -58,0"
+        android:fillColor="#00000000"
+        android:strokeColor="#5599DDFF"
+        android:strokeWidth="0.6" />
+
+    <!-- Left wave (symmetric) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44.48,40.10 L42.69,38.31 C39.69,40.60 37.71,44.12 37.54,48.13 H40.04 C40.23,44.82 41.93,41.92 44.48,40.10 Z" />
+
+    <!-- Right wave (exact mirror of left around x=50) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55.52,40.10 L57.31,38.31 C60.31,40.60 62.29,44.12 62.46,48.13 H59.96 C59.77,44.82 58.07,41.92 55.52,40.10 Z" />
+
+    <!-- Bell body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M57.50,49.38 c0,-3.84 -2.05,-7.05 -5.62,-7.90 V40.62 c0,-1.04 -0.84,-1.88 -1.88,-1.88 s-1.88,0.84 -1.88,1.88 v0.85 C44.54,42.33 42.50,45.52 42.50,49.38 v6.25 l-2.50,2.50 v1.25 h20.00 v-1.25 l-2.50,-2.50 v-6.25 z" />
+
+    <!-- Clapper -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50.00,63.75 c1.38,0 2.50,-1.12 2.50,-2.50 h-5.00 c0,1.38 1.12,2.50 2.50,2.50 z" />
+
+</vector>
