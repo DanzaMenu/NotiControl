@@ -30,6 +30,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import com.danza.noticontrol.data.SilencedNotification
 import com.danza.noticontrol.ui.theme.*
 import com.danza.noticontrol.viewmodel.ActiveSilence
@@ -83,6 +88,7 @@ fun HomeScreen(
     }
 
     val isSilenced = activeSilence != null
+    val isOrbMode = activeSilence?.durationMinutes == -1
 
     val inf = rememberInfiniteTransition(label = "bg")
     val bgShift by inf.animateFloat(
@@ -114,7 +120,11 @@ fun HomeScreen(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                if (isSilenced) Color(0x40CE93D8) else Color(0x304FC3F7),
+                                when {
+                                    isOrbMode -> Color(0x40EF5350)
+                                    isSilenced -> Color(0x40CE93D8)
+                                    else -> Color(0x304FC3F7)
+                                },
                                 Color.Transparent
                             )
                         )
@@ -127,6 +137,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -171,8 +182,23 @@ fun HomeScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            // Orb
-            PulsingOrb(isSilenced = isSilenced, size = 190.dp)
+            // Orb — tap to toggle indefinite silence
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable {
+                        when {
+                            isOrbMode -> viewModel.endSilenceEarly(context)
+                            !isSilenced -> viewModel.startOrbSilence(context)
+                        }
+                    }
+            ) {
+                PulsingOrb(orbState = when {
+                    isOrbMode -> OrbState.ORB
+                    isSilenced -> OrbState.TIMED
+                    else -> OrbState.IDLE
+                }, size = 190.dp)
+            }
 
             Spacer(Modifier.height(18.dp))
 
@@ -182,14 +208,32 @@ fun HomeScreen(
                     modifier = Modifier
                         .size(7.dp)
                         .clip(CircleShape)
-                        .background(if (isSilenced) AccentPurple else Color(0xFF4CAF50))
+                        .background(when {
+                            isOrbMode -> DangerRed
+                            isSilenced -> AccentPurple
+                            else -> Color(0xFF4CAF50)
+                        })
                 )
                 Spacer(Modifier.width(7.dp))
                 Text(
-                    if (isSilenced) "Silence Mode On" else "All notifications allowed",
+                    when {
+                        isOrbMode -> "Silencing All — Tap to Stop"
+                        isSilenced -> "Silence Mode On"
+                        else -> "All notifications allowed"
+                    },
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White.copy(alpha = 0.9f)
+                )
+            }
+
+            if (!isSilenced) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Tap the bell to silence everything instantly",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.3f),
+                    textAlign = TextAlign.Center
                 )
             }
 
@@ -197,6 +241,9 @@ fun HomeScreen(
 
             if (!hasListenerPermission) {
                 PermissionCard(context)
+            } else if (isOrbMode) {
+                // Orb mode — just show the live silenced notifications
+                OrbSilenceNotificationsCard(notifications = liveNotifications)
             } else if (isSilenced && activeSilence != null) {
                 ActiveSilenceCard(
                     activeSilence = activeSilence!!,
@@ -316,6 +363,7 @@ fun BlockModeToggle(blockMode: String, onModeChange: (String) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DurationCard(
     durationType: String,
@@ -335,6 +383,76 @@ fun DurationCard(
     hasAppsSelected: Boolean
 ) {
     val canStart = blockMode == "all" || hasAppsSelected
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Bottom sheet for custom picker
+    if (showCustomPicker) {
+        ModalBottomSheet(
+            onDismissRequest = { onHideCustom() },
+            sheetState = sheetState,
+            containerColor = Color(0xFF0D1B2E),
+            contentColor = Color.White,
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Custom Time Range", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(Modifier.height(20.dp))
+
+                Text("From", fontSize = 11.sp, color = Color.White.copy(0.4f), letterSpacing = 0.8.sp, modifier = Modifier.align(Alignment.Start))
+                Spacer(Modifier.height(8.dp))
+                TimePickerRow(hour = fromHour, minute = fromMin, onHourChange = onFromHourChange, onMinChange = onFromMinChange)
+
+                Spacer(Modifier.height(16.dp))
+                Text("To", fontSize = 11.sp, color = Color.White.copy(0.4f), letterSpacing = 0.8.sp, modifier = Modifier.align(Alignment.Start))
+                Spacer(Modifier.height(8.dp))
+                TimePickerRow(hour = toHour, minute = toMin, onHourChange = onToHourChange, onMinChange = onToMinChange)
+
+                Spacer(Modifier.height(14.dp))
+                val durationMins = calcDurationMins(fromHour, fromMin, toHour, toMin)
+                Text("Duration: ${formatDuration(durationMins)}", fontSize = 13.sp, color = AccentBlue)
+
+                Spacer(Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White.copy(alpha = 0.08f))
+                            .clickable { onHideCustom() }
+                            .padding(vertical = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Cancel", color = Color.White.copy(0.6f), fontSize = 15.sp)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (canStart)
+                                    Brush.linearGradient(listOf(AccentBlue, AccentPurple))
+                                else
+                                    Brush.linearGradient(listOf(Color.White.copy(0.1f), Color.White.copy(0.05f)))
+                            )
+                            .clickable { if (canStart) { onStartCustom(); onHideCustom() } }
+                            .padding(vertical = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Start", color = if (canStart) Color.White else Color.White.copy(0.3f), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -396,98 +514,36 @@ fun DurationCard(
 
             Spacer(Modifier.height(8.dp))
 
-            // Custom toggle
-            AnimatedVisibility(visible = !showCustomPicker) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            if (durationType == "custom")
-                                Brush.linearGradient(listOf(AccentBlue.copy(alpha = 0.2f), AccentPurple.copy(alpha = 0.15f)))
-                            else
-                                Brush.linearGradient(listOf(Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.03f)))
-                        )
-                        .drawBehind {
-                            drawRoundRect(
-                                color = if (durationType == "custom") AccentBlue.copy(0.4f) else Color.White.copy(alpha = 0.1f),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()),
-                                style = Stroke(1f)
-                            )
-                        }
-                        .clickable { onShowCustom() }
-                        .padding(vertical = 13.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Schedule, contentDescription = null, tint = if (durationType == "custom") AccentBlue else Color.White.copy(0.4f), modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(7.dp))
-                        Text(
-                            if (durationType == "custom") formatTime12h(customFromHour = 0, h = 0, m = 0, fromH = 0, fromM = 0, toH = 0, toM = 0).let {
-                                "Custom: set time range"
-                            } else "Custom Time Range",
-                            color = if (durationType == "custom") AccentBlue else Color.White.copy(0.5f),
-                            fontSize = 14.sp
-                        )
-                    }
-                }
-            }
-
-            AnimatedVisibility(visible = showCustomPicker) {
-                Column {
-                    Spacer(Modifier.height(4.dp))
-                    Text("From", fontSize = 11.sp, color = Color.White.copy(0.4f), letterSpacing = 0.8.sp)
-                    Spacer(Modifier.height(6.dp))
-                    TimePickerRow(hour = fromHour, minute = fromMin, onHourChange = onFromHourChange, onMinChange = onFromMinChange)
-                    Spacer(Modifier.height(10.dp))
-                    Text("To", fontSize = 11.sp, color = Color.White.copy(0.4f), letterSpacing = 0.8.sp)
-                    Spacer(Modifier.height(6.dp))
-                    TimePickerRow(hour = toHour, minute = toMin, onHourChange = onToHourChange, onMinChange = onToMinChange)
-
-                    // Duration preview
-                    val durationMins = calcDurationMins(fromHour, fromMin, toHour, toMin)
-                    val durationLabel = formatDuration(durationMins)
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Duration: $durationLabel",
-                        fontSize = 13.sp,
-                        color = AccentBlue,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
+            // Custom button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (durationType == "custom")
+                            Brush.linearGradient(listOf(AccentBlue.copy(alpha = 0.2f), AccentPurple.copy(alpha = 0.15f)))
+                        else
+                            Brush.linearGradient(listOf(Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.03f)))
                     )
-
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.06f))
-                                .clickable { onHideCustom() }
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("Cancel", color = Color.White.copy(0.5f), fontSize = 14.sp)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    if (canStart)
-                                        Brush.linearGradient(listOf(AccentBlue, AccentPurple))
-                                    else
-                                        Brush.linearGradient(listOf(Color.White.copy(0.1f), Color.White.copy(0.05f)))
-                                )
-                                .clickable { if (canStart) onStartCustom() }
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("Start", color = if (canStart) Color.White else Color.White.copy(0.3f), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
+                    .drawBehind {
+                        drawRoundRect(
+                            color = if (durationType == "custom") AccentBlue.copy(0.4f) else Color.White.copy(alpha = 0.1f),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()),
+                            style = Stroke(1f)
+                        )
                     }
+                    .clickable { onShowCustom() }
+                    .padding(vertical = 13.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Schedule, contentDescription = null, tint = if (durationType == "custom") AccentBlue else Color.White.copy(0.4f), modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        "Custom Time Range",
+                        color = if (durationType == "custom") AccentBlue else Color.White.copy(0.5f),
+                        fontSize = 14.sp
+                    )
                 }
             }
 
@@ -659,8 +715,11 @@ private fun formatDuration(mins: Int): String {
 
 private fun formatTime12h(customFromHour: Int, h: Int, m: Int, fromH: Int, fromM: Int, toH: Int, toM: Int): String = ""
 
+enum class OrbState { IDLE, TIMED, ORB }
+
 @Composable
-fun PulsingOrb(isSilenced: Boolean, size: Dp) {
+fun PulsingOrb(orbState: OrbState, size: Dp) {
+    val isSilenced = orbState != OrbState.IDLE
     val inf = rememberInfiniteTransition(label = "orb")
     val pulse by inf.animateFloat(
         initialValue = 0.93f, targetValue = 1.07f,
@@ -673,8 +732,16 @@ fun PulsingOrb(isSilenced: Boolean, size: Dp) {
         label = "ring"
     )
 
-    val coreColor = if (isSilenced) AccentPurple else AccentBlue
-    val glowColor = if (isSilenced) Color(0x60CE93D8) else Color(0x504FC3F7)
+    val coreColor = when (orbState) {
+        OrbState.ORB -> DangerRed
+        OrbState.TIMED -> AccentPurple
+        OrbState.IDLE -> AccentBlue
+    }
+    val glowColor = when (orbState) {
+        OrbState.ORB -> Color(0x60EF5350)
+        OrbState.TIMED -> Color(0x60CE93D8)
+        OrbState.IDLE -> Color(0x504FC3F7)
+    }
 
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size)) {
         Box(
@@ -742,6 +809,86 @@ fun PulsingOrb(isSilenced: Boolean, size: Dp) {
             tint = Color.White,
             modifier = Modifier.size(size * 0.24f)
         )
+    }
+}
+
+@Composable
+fun OrbSilenceNotificationsCard(notifications: List<SilencedNotification>) {
+    val timeSdf = SimpleDateFormat("h:mm:ss a", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("America/New_York")
+    }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(notifications.size) {
+        if (notifications.isNotEmpty()) listState.animateScrollToItem(notifications.size - 1)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .glassSurface(cornerRadius = 20.dp, accentColor = DangerRed.copy(alpha = 0.06f))
+            .padding(16.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("SILENCED", fontSize = 10.sp, color = Color.White.copy(0.35f), letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
+                if (notifications.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DangerRed.copy(alpha = 0.2f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text("${notifications.size}", fontSize = 11.sp, color = DangerRed, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            if (notifications.isEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("Waiting for notifications...", fontSize = 13.sp, color = Color.White.copy(0.25f), modifier = Modifier.align(Alignment.CenterHorizontally))
+                Spacer(Modifier.height(4.dp))
+            } else {
+                Spacer(Modifier.height(10.dp))
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.heightIn(max = 320.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    items(notifications, key = { it.id }) { noti ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(noti.appName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = DangerRed, modifier = Modifier.weight(1f))
+                                    Text(timeSdf.format(Date(noti.receivedAt)), fontSize = 10.sp, color = Color.White.copy(0.25f))
+                                }
+                                if (noti.title.isNotBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(noti.title, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Medium, maxLines = 1)
+                                }
+                                if (noti.text.isNotBlank()) {
+                                    Text(noti.text, fontSize = 11.sp, color = Color.White.copy(0.45f), maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

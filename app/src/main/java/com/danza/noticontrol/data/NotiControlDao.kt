@@ -37,4 +37,7 @@ interface NotiControlDao {
 
     @Query("SELECT COUNT(*) FROM silenced_notifications WHERE sessionId = :sessionId")
     suspend fun getNotificationCountForSession(sessionId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM silenced_notifications WHERE sessionId = :sessionId")
+    fun getNotificationCountForSessionFlow(sessionId: Long): Flow<Int>
 }

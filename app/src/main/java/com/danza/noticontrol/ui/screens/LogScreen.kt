@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.danza.noticontrol.data.AppDatabase
 import com.danza.noticontrol.data.SilenceSession
 import com.danza.noticontrol.data.SilencedNotification
 import com.danza.noticontrol.ui.theme.*
@@ -117,6 +118,9 @@ fun SessionCard(
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     val notifications by viewModel.selectedSessionNotifications.collectAsState()
+    val notiCount by remember {
+        AppDatabase.get(context).dao().getNotificationCountForSessionFlow(session.id)
+    }.collectAsState(initial = 0)
 
     val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("America/New_York")
@@ -124,8 +128,11 @@ fun SessionCard(
 
     val durationLabel = run {
         val mins = session.durationMinutes
-        if (mins >= 60) "${mins / 60}h ${if (mins % 60 > 0) "${mins % 60}m" else ""}".trim()
-        else "${mins}m"
+        when {
+            mins < 0 -> "Until stopped"
+            mins >= 60 -> "${mins / 60}h ${if (mins % 60 > 0) "${mins % 60}m" else ""}".trim()
+            else -> "${mins}m"
+        }
     }
 
     LaunchedEffect(expanded, session.id) {
@@ -167,11 +174,23 @@ fun SessionCard(
                         }
                     }
                     Spacer(Modifier.height(3.dp))
-                    Text(
-                        "Duration: $durationLabel",
-                        fontSize = 12.sp,
-                        color = GlassWhiteDim
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Duration: $durationLabel", fontSize = 12.sp, color = GlassWhiteDim)
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(AccentPurple.copy(alpha = 0.18f))
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "$notiCount silenced",
+                                fontSize = 10.sp,
+                                color = AccentPurple,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = DangerRed.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))

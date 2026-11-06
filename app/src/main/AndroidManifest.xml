@@ -35,11 +35,31 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".service.SilenceTileService"
+            android:exported="true"
+            android:label="Noti Control"
+            android:icon="@drawable/ic_tile_silence"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".receiver.SilenceEndReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.danza.noticontrol.SILENCE_END" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receiver.TileActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.danza.noticontrol.TILE_START" />
+                <action android:name="com.danza.noticontrol.TILE_STOP" />
             </intent-filter>
         </receiver>
 

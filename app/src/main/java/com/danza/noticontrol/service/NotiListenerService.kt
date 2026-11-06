@@ -16,7 +16,13 @@ class NotiListenerService : NotificationListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     companion object {
-        var isSilencing = false
+        private val _isSilencingFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val isSilencingFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isSilencingFlow
+
+        var isSilencing: Boolean
+            get() = _isSilencingFlow.value
+            set(value) { _isSilencingFlow.value = value }
+
         var currentSessionId: Long = -1L
         var blockedPackages: Set<String>? = null
         var instance: NotiListenerService? = null

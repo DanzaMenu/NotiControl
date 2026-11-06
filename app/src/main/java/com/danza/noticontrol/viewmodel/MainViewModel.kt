@@ -77,7 +77,7 @@ class MainViewModel : ViewModel() {
         val prefs = PrefsStore(context)
 
         viewModelScope.launch {
-            dao.getAllSessions().collect { _sessions.value = it }
+            dao.getAllSessions().collect { _sessions.value = it.sortedByDescending { s -> s.startTime } }
         }
 
         // Load persisted prefs
@@ -94,6 +94,21 @@ class MainViewModel : ViewModel() {
         // Sync live detections from service into ViewModel
         viewModelScope.launch {
             NotiListenerService.highImportancePackages.collect { _highImportancePackages.value = it }
+        }
+
+        // Sync tile-triggered silence into UI
+        viewModelScope.launch {
+            NotiListenerService.isSilencingFlow.collect { silencing ->
+                if (silencing && _activeSilence.value == null) {
+                    // Tile just started a session — find it in DB and show it
+                    val active = dao.getActiveSession(System.currentTimeMillis())
+                    if (active != null) {
+                        _activeSilence.value = ActiveSilence(active.id, active.endTime, active.durationMinutes)
+                    }
+                } else if (!silencing && _activeSilence.value != null) {
+                    _activeSilence.value = null
+                }
+            }
         }
 
         // Restore active silence session if the process was killed mid-session
@@ -202,6 +217,23 @@ class MainViewModel : ViewModel() {
             NotiListenerService.currentSessionId = sessionId
             _activeSilence.value = ActiveSilence(sessionId, endTime, durationMins)
             scheduleAlarm(context, endTime)
+        }
+    }
+
+    fun startOrbSilence(context: Context) {
+        NotiListenerService.blockedPackages = null // always all apps
+        viewModelScope.launch {
+            val dao = AppDatabase.get(context).dao()
+            val sessionId = dao.insertSession(
+                SilenceSession(
+                    startTime = System.currentTimeMillis(),
+                    endTime = Long.MAX_VALUE,
+                    durationMinutes = -1
+                )
+            )
+            NotiListenerService.isSilencing = true
+            NotiListenerService.currentSessionId = sessionId
+            _activeSilence.value = ActiveSilence(sessionId, Long.MAX_VALUE, -1)
         }
     }
 
