@@ -2,13 +2,27 @@ package com.danza.noticontrol.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.geometry.Size
+import kotlin.math.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +54,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import com.danza.noticontrol.data.SilencedNotification
+import androidx.compose.runtime.CompositionLocalProvider
 import com.danza.noticontrol.ui.theme.*
 import com.danza.noticontrol.updater.AppUpdater
 import com.danza.noticontrol.updater.UpdateInfo
@@ -50,6 +65,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel,
@@ -67,6 +83,13 @@ fun HomeScreen(
     val customFromMin by viewModel.customFromMin.collectAsState()
     val customToHour by viewModel.customToHour.collectAsState()
     val customToMin by viewModel.customToMin.collectAsState()
+    val savedBgColor by viewModel.bgColor.collectAsState()
+    val bgMediaUri by viewModel.bgMediaUri.collectAsState()
+    val bgMediaType by viewModel.bgMediaType.collectAsState()
+    val bgMediaDim by viewModel.bgMediaDim.collectAsState()
+    val dynamicAccentLong by viewModel.dynamicAccent.collectAsState()
+    val accent = Color(dynamicAccentLong.toULong())
+    var showSettings by remember { mutableStateOf(false) }
 
     // Keep live notifications loaded for the active session
     LaunchedEffect(activeSilence?.sessionId) {
@@ -84,6 +107,498 @@ fun HomeScreen(
         if (info != null) {
             updateInfo = info
             showUpdateDialog = true
+        }
+    }
+
+    CompositionLocalProvider(LocalAccentColor provides accent) {
+
+    // Settings bottom sheet
+    if (showSettings) {
+        val settingsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showSettings = false },
+            sheetState = settingsSheetState,
+            containerColor = Color(0xFF141414)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    "Settings",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(Modifier.height(20.dp))
+                var bgColorExpanded by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(0.06f))
+                        .clickable { bgColorExpanded = !bgColorExpanded }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Background Color",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(0.9f)
+                    )
+                    Icon(
+                        if (bgColorExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = Color.White.copy(0.5f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                AnimatedVisibility(visible = bgColorExpanded) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                Spacer(Modifier.height(12.dp))
+
+                // Initialize wheel state from saved color
+                val initHsv = remember(savedBgColor) {
+                    if (savedBgColor != null) {
+                        val c = Color(savedBgColor!!.toULong())
+                        val hsv = FloatArray(3)
+                        android.graphics.Color.RGBToHSV(
+                            (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt(), hsv
+                        )
+                        hsv
+                    } else {
+                        floatArrayOf(210f, 0.7f, 0.24f)
+                    }
+                }
+                var hue by remember(savedBgColor) { mutableStateOf(initHsv[0]) }
+                var saturation by remember(savedBgColor) { mutableStateOf(initHsv[1]) }
+                var brightness by remember(savedBgColor) { mutableStateOf(initHsv[2]) }
+                var hexText by remember(savedBgColor) { mutableStateOf(
+                    if (savedBgColor != null) {
+                        val c = Color(savedBgColor!!.toULong())
+                        String.format("%02X%02X%02X", (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt())
+                    } else ""
+                ) }
+
+                fun hsvToColor(h: Float, s: Float, v: Float): Color {
+                    val rgb = android.graphics.Color.HSVToColor(floatArrayOf(h, s, v))
+                    return Color(rgb).copy(alpha = 1f)
+                }
+
+                fun applyColor(h: Float, s: Float, v: Float) {
+                    val c = hsvToColor(h, s, v)
+                    val hex = String.format("%02X%02X%02X", (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt())
+                    hexText = hex
+                    viewModel.setBgColor(context, c.value.toLong())
+                }
+
+                val currentColor = hsvToColor(hue, saturation, brightness)
+
+                // Color wheel
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val wheelSize = 240.dp
+                    Canvas(
+                        modifier = Modifier
+                            .size(wheelSize)
+                            .pointerInput(Unit) {
+                                detectTapGestures { offset ->
+                                    val cx = size.width / 2f
+                                    val cy = size.height / 2f
+                                    val dx = offset.x - cx
+                                    val dy = offset.y - cy
+                                    val radius = size.width / 2f
+                                    val dist = sqrt(dx * dx + dy * dy)
+                                    if (dist <= radius) {
+                                        val angle = (Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 360) % 360
+                                        hue = angle.toFloat()
+                                        saturation = (dist / radius).coerceIn(0f, 1f)
+                                        applyColor(hue, saturation, brightness)
+                                    }
+                                }
+                            }
+                            .pointerInput(Unit) {
+                                var dragging = false
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val cx = size.width / 2f
+                                        val cy = size.height / 2f
+                                        val radius = size.width / 2f
+                                        for (change in event.changes) {
+                                            if (change.pressed) {
+                                                val dx = change.position.x - cx
+                                                val dy = change.position.y - cy
+                                                val dist = sqrt(dx * dx + dy * dy)
+                                                if (dist <= radius || dragging) {
+                                                    dragging = true
+                                                    val clampedDist = dist.coerceAtMost(radius)
+                                                    val angle = (Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 360) % 360
+                                                    hue = angle.toFloat()
+                                                    saturation = (clampedDist / radius).coerceIn(0f, 1f)
+                                                    applyColor(hue, saturation, brightness)
+                                                    change.consume()
+                                                }
+                                            } else {
+                                                dragging = false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                    ) {
+                        val radius = size.minDimension / 2f
+                        val cx = size.width / 2f
+                        val cy = size.height / 2f
+                        val step = 2
+                        for (angle in 0 until 360 step step) {
+                            val sweep = step.toFloat() + 0.5f
+                            for (ring in 0..20) {
+                                val s = ring / 20f
+                                val innerR = radius * (ring / 21f)
+                                val outerR = radius * ((ring + 1) / 21f)
+                                val paint = android.graphics.Paint().apply {
+                                    color = android.graphics.Color.HSVToColor(floatArrayOf(angle.toFloat(), s, 1f))
+                                    style = android.graphics.Paint.Style.FILL
+                                }
+                                drawContext.canvas.nativeCanvas.drawArc(
+                                    cx - outerR, cy - outerR, cx + outerR, cy + outerR,
+                                    angle.toFloat(), sweep, true, paint
+                                )
+                            }
+                        }
+
+                        // Draw thumb
+                        val thumbAngle = Math.toRadians(hue.toDouble())
+                        val thumbDist = saturation * radius
+                        val thumbX = cx + (thumbDist * cos(thumbAngle)).toFloat()
+                        val thumbY = cy + (thumbDist * sin(thumbAngle)).toFloat()
+                        drawCircle(
+                            color = Color.White,
+                            radius = 14f,
+                            center = Offset(thumbX, thumbY),
+                            style = Stroke(width = 3f)
+                        )
+                        drawCircle(
+                            color = currentColor,
+                            radius = 11f,
+                            center = Offset(thumbX, thumbY)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Brightness slider
+                Text("Brightness", fontSize = 12.sp, color = Color.White.copy(0.6f))
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .drawBehind {
+                            for (x in 0..size.width.toInt()) {
+                                val v = x / size.width
+                                val rgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, v))
+                                drawRect(
+                                    color = Color(rgb).copy(alpha = 1f),
+                                    topLeft = Offset(x.toFloat(), 0f),
+                                    size = Size(1f, size.height)
+                                )
+                            }
+                        }
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    for (change in event.changes) {
+                                        if (change.pressed) {
+                                            brightness = (change.position.x / size.width).coerceIn(0.05f, 0.5f)
+                                            applyColor(hue, saturation, brightness)
+                                            change.consume()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                ) {
+                    // Thumb on brightness slider
+                    val thumbX = brightness / 0.5f * (1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(thumbX.coerceIn(0.02f, 0.98f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                                .border(2.dp, currentColor, CircleShape)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Hex input + preview
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Color preview circle
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(currentColor)
+                            .border(1.dp, Color.White.copy(0.3f), CircleShape)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    // Hex input
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(0.08f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Text("#", color = Color.White.copy(0.4f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        BasicTextField(
+                            value = hexText,
+                            onValueChange = { input ->
+                                val filtered = input.filter { it in "0123456789ABCDEFabcdef" }.take(6)
+                                hexText = filtered.uppercase()
+                                if (filtered.length == 6) {
+                                    try {
+                                        val rgb = android.graphics.Color.parseColor("#$filtered")
+                                        val c = Color(rgb).copy(alpha = 1f)
+                                        val hsv = FloatArray(3)
+                                        android.graphics.Color.RGBToHSV(
+                                            (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt(), hsv
+                                        )
+                                        hue = hsv[0]; saturation = hsv[1]; brightness = hsv[2]
+                                        viewModel.setBgColor(context, c.value.toLong())
+                                    } catch (_: Exception) {}
+                                }
+                            },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                // Reset button
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(0.06f))
+                        .clickable {
+                            viewModel.resetBgColor(context)
+                            hue = 210f; saturation = 0.7f; brightness = 0.24f
+                            hexText = ""
+                        }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Reset to Default", color = LocalAccentColor.current, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                }
+                } // Column
+                } // AnimatedVisibility
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Background Media section ──────────────────────────────────
+                var bgMediaExpanded by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(0.06f))
+                        .clickable { bgMediaExpanded = !bgMediaExpanded }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Background Media",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(0.9f)
+                    )
+                    Icon(
+                        if (bgMediaExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = Color.White.copy(0.5f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                AnimatedVisibility(visible = bgMediaExpanded) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                Spacer(Modifier.height(12.dp))
+
+                // Type selector: None / Video / Image
+                val mediaTypes = listOf("none", "video", "image")
+                val mediaLabels = listOf("None", "Video", "Image")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    mediaTypes.forEachIndexed { i, type ->
+                        val selected = bgMediaType == type
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) LocalAccentColor.current.copy(0.25f) else Color.White.copy(0.06f))
+                                .border(1.dp, if (selected) LocalAccentColor.current else Color.Transparent, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    if (type == "none") {
+                                        viewModel.resetBgMedia(context)
+                                    } else {
+                                        viewModel.setBgMediaType(context, type)
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                mediaLabels[i],
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selected) LocalAccentColor.current else Color.White.copy(0.6f)
+                            )
+                        }
+                    }
+                }
+
+                // File picker launcher (only shown when video or image selected)
+                if (bgMediaType != "none") {
+                    val mimeType = if (bgMediaType == "video") "video/*" else "image/*"
+                    val mediaPicker = rememberLauncherForActivityResult(
+                        ActivityResultContracts.GetContent()
+                    ) { uri: Uri? ->
+                        if (uri != null) {
+                            // Take persistable permission so URI survives app restarts
+                            context.contentResolver.takePersistableUriPermission(
+                                uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                            viewModel.setBgMedia(context, uri.toString(), bgMediaType)
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(0.06f))
+                            .clickable { mediaPicker.launch(mimeType) }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                tint = LocalAccentColor.current,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                if (bgMediaUri.isNullOrEmpty()) "Pick ${if (bgMediaType == "video") "Video" else "Image"}"
+                                else "Change ${if (bgMediaType == "video") "Video" else "Image"}",
+                                color = LocalAccentColor.current,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+
+                    // Show current file name if one is set
+                    if (!bgMediaUri.isNullOrEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            Uri.parse(bgMediaUri).lastPathSegment ?: "File selected",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(0.35f),
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Dimness slider
+                    var localDim by remember(bgMediaDim) { mutableStateOf(bgMediaDim) }
+                    Text(
+                        "Dimness  ${(localDim * 100).toInt()}%",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(0.6f)
+                    )
+                    Slider(
+                        value = localDim,
+                        onValueChange = { localDim = it },
+                        onValueChangeFinished = { viewModel.setBgMediaDim(context, localDim) },
+                        valueRange = 0f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = LocalAccentColor.current,
+                            inactiveTrackColor = Color.White.copy(0.15f)
+                        )
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                // Clear media button
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(0.06f))
+                        .clickable { viewModel.resetBgMedia(context) }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Clear Media", color = LocalAccentColor.current, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                }
+                } // Column
+                } // AnimatedVisibility
+
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "v${AppUpdater.getCurrentVersion(context)}",
+                    fontSize = 11.sp,
+                    color = Color.White.copy(0.3f),
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 
@@ -117,7 +632,7 @@ fun HomeScreen(
                         Spacer(Modifier.height(12.dp))
                         LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth(),
-                            color = AccentBlue
+                            color = LocalAccentColor.current
                         )
                         Spacer(Modifier.height(4.dp))
                         Text("Downloading…", color = Color.White.copy(0.5f), fontSize = 11.sp)
@@ -139,7 +654,7 @@ fun HomeScreen(
                     },
                     enabled = !isDownloading
                 ) {
-                    Text("Update", color = if (isDownloading) Color.Gray else AccentBlue, fontWeight = FontWeight.Bold)
+                    Text("Update", color = if (isDownloading) Color.Gray else LocalAccentColor.current, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = { }
@@ -181,19 +696,72 @@ fun HomeScreen(
         label = "bgShift"
     )
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .drawBehind {
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF0B1E3D), Color(0xFF050A14)),
-                        center = Offset(size.width * 0.5f, size.height * (0.3f + bgShift * 0.08f)),
-                        radius = size.height * 0.9f
-                    )
-                )
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Background layer: media (video/image) OR color gradient
+        if (bgMediaType == "video" && !bgMediaUri.isNullOrEmpty()) {
+            val exoPlayer = remember(bgMediaUri) {
+                ExoPlayer.Builder(context.applicationContext).build().apply {
+                    setMediaItem(MediaItem.fromUri(Uri.parse(bgMediaUri)))
+                    repeatMode = Player.REPEAT_MODE_ALL
+                    volume = 0f
+                    videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                    prepare()
+                    playWhenReady = true
+                }
             }
-    ) {
+            DisposableEffect(exoPlayer) {
+                onDispose { exoPlayer.release() }
+            }
+            AndroidView(
+                factory = { ctx ->
+                    android.view.SurfaceView(ctx).also { sv ->
+                        exoPlayer.setVideoSurfaceView(sv)
+                    }
+                },
+                update = { sv ->
+                    exoPlayer.setVideoSurfaceView(sv as android.view.SurfaceView)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (bgMediaType == "image" && bgMediaUri != null) {
+            androidx.compose.foundation.Image(
+                painter = coil.compose.rememberAsyncImagePainter(bgMediaUri),
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            // Default color gradient
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        val bgCenter = if (savedBgColor != null) Color(savedBgColor!!.toULong()) else Color(0xFF0B1E3D)
+                        val bgEdge = if (savedBgColor != null) {
+                            Color(bgCenter.red * 0.4f, bgCenter.green * 0.4f, bgCenter.blue * 0.4f)
+                        } else Color(0xFF050A14)
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = listOf(bgCenter, bgEdge),
+                                center = Offset(size.width * 0.5f, size.height * (0.3f + bgShift * 0.08f)),
+                                radius = size.height * 0.9f
+                            )
+                        )
+                    }
+            )
+        }
+
+        // Dim overlay for media
+        if (bgMediaType != "none" && bgMediaUri != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = bgMediaDim))
+            )
+        }
+
+        // Main content Box (all existing UI sits here)
+        Box(modifier = Modifier.fillMaxSize()) {
         // Glow blobs
         Box(
             modifier = Modifier
@@ -248,18 +816,30 @@ fun HomeScreen(
                         letterSpacing = 0.3.sp
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .glassSurface(cornerRadius = 12.dp)
-                        .clickable { onNavigateToLog() }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.History, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("History", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .glassSurface(cornerRadius = 12.dp)
+                            .clickable { onNavigateToLog() }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.History, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("History", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .glassSurface(cornerRadius = 12.dp)
+                            .clickable { showSettings = true }
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Menu, contentDescription = "Settings", tint = Color.White, modifier = Modifier.size(17.dp))
                     }
                 }
             }
@@ -290,7 +870,7 @@ fun HomeScreen(
                             } else {
                                 android.widget.Toast.makeText(context, "Long-press your home screen → Widgets → Noti Control", android.widget.Toast.LENGTH_LONG).show()
                             }
-                        }) { Text("Add", color = AccentBlue, fontWeight = FontWeight.Bold) }
+                        }) { Text("Add", color = LocalAccentColor.current, fontWeight = FontWeight.Bold) }
                     },
                     dismissButton = {
                         TextButton(onClick = { showPinDialog = false }) {
@@ -398,14 +978,14 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Apps, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Apps, contentDescription = null, tint = LocalAccentColor.current, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Column {
                                     Text("Select Apps to Silence", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Medium)
                                     Text(
                                         if (blockedPackages.isEmpty()) "No apps selected" else "${blockedPackages.size} app${if (blockedPackages.size != 1) "s" else ""} selected",
                                         fontSize = 12.sp,
-                                        color = if (blockedPackages.isEmpty()) DangerRed.copy(alpha = 0.8f) else AccentBlue
+                                        color = if (blockedPackages.isEmpty()) DangerRed.copy(alpha = 0.8f) else LocalAccentColor.current
                                     )
                                 }
                             }
@@ -447,7 +1027,10 @@ fun HomeScreen(
 
             Spacer(Modifier.height(16.dp))
         }
-    }
+        } // inner content Box
+    } // outer Box
+
+    } // CompositionLocalProvider
 }
 
 @Composable
@@ -467,7 +1050,7 @@ fun BlockModeToggle(blockMode: String, onModeChange: (String) -> Unit) {
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(
-                            if (selected) Brush.linearGradient(listOf(AccentBlue.copy(alpha = 0.4f), AccentPurple.copy(alpha = 0.3f)))
+                            if (selected) Brush.linearGradient(listOf(LocalAccentColor.current.copy(alpha = 0.4f), AccentPurple.copy(alpha = 0.3f)))
                             else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
                         )
                         .clickable { onModeChange(mode) }
@@ -507,6 +1090,7 @@ fun DurationCard(
 ) {
     val canStart = blockMode == "all" || hasAppsSelected
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val accent = LocalAccentColor.current
 
     // Bottom sheet for custom picker
     if (showCustomPicker) {
@@ -538,7 +1122,7 @@ fun DurationCard(
 
                 Spacer(Modifier.height(14.dp))
                 val durationMins = calcDurationMins(fromHour, fromMin, toHour, toMin)
-                Text("Duration: ${formatDuration(durationMins)}", fontSize = 13.sp, color = AccentBlue)
+                Text("Duration: ${formatDuration(durationMins)}", fontSize = 13.sp, color = LocalAccentColor.current)
 
                 Spacer(Modifier.height(20.dp))
                 Row(
@@ -562,7 +1146,7 @@ fun DurationCard(
                             .clip(RoundedCornerShape(14.dp))
                             .background(
                                 if (canStart)
-                                    Brush.linearGradient(listOf(AccentBlue, AccentPurple))
+                                    Brush.linearGradient(listOf(LocalAccentColor.current, AccentPurple))
                                 else
                                     Brush.linearGradient(listOf(Color.White.copy(0.1f), Color.White.copy(0.05f)))
                             )
@@ -609,14 +1193,14 @@ fun DurationCard(
                                 drawRoundRect(
                                     brush = Brush.linearGradient(
                                         if (isLast)
-                                            listOf(AccentBlue.copy(alpha = 0.4f), AccentPurple.copy(alpha = 0.3f))
+                                            listOf(accent.copy(alpha = 0.4f), AccentPurple.copy(alpha = 0.3f))
                                         else
                                             listOf(Color.White.copy(alpha = 0.1f), Color.White.copy(alpha = 0.05f))
                                     ),
                                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx())
                                 )
                                 drawRoundRect(
-                                    color = if (isLast) AccentBlue.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.15f),
+                                    color = if (isLast) accent.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.15f),
                                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()),
                                     style = Stroke(1f)
                                 )
@@ -644,13 +1228,13 @@ fun DurationCard(
                     .clip(RoundedCornerShape(12.dp))
                     .background(
                         if (durationType == "custom")
-                            Brush.linearGradient(listOf(AccentBlue.copy(alpha = 0.2f), AccentPurple.copy(alpha = 0.15f)))
+                            Brush.linearGradient(listOf(accent.copy(alpha = 0.2f), AccentPurple.copy(alpha = 0.15f)))
                         else
                             Brush.linearGradient(listOf(Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.03f)))
                     )
                     .drawBehind {
                         drawRoundRect(
-                            color = if (durationType == "custom") AccentBlue.copy(0.4f) else Color.White.copy(alpha = 0.1f),
+                            color = if (durationType == "custom") accent.copy(0.4f) else Color.White.copy(alpha = 0.1f),
                             cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()),
                             style = Stroke(1f)
                         )
@@ -660,11 +1244,11 @@ fun DurationCard(
                 contentAlignment = Alignment.Center
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Schedule, contentDescription = null, tint = if (durationType == "custom") AccentBlue else Color.White.copy(0.4f), modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Schedule, contentDescription = null, tint = if (durationType == "custom") LocalAccentColor.current else Color.White.copy(0.4f), modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(7.dp))
                     Text(
                         "Custom Time Range",
-                        color = if (durationType == "custom") AccentBlue else Color.White.copy(0.5f),
+                        color = if (durationType == "custom") LocalAccentColor.current else Color.White.copy(0.5f),
                         fontSize = 14.sp
                     )
                 }
@@ -736,7 +1320,7 @@ fun TimePickerRow(hour: Int, minute: Int, onHourChange: (Int) -> Unit, onMinChan
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(
-                            if (amPm == period) AccentBlue.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.06f)
+                            if (amPm == period) LocalAccentColor.current.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.06f)
                         )
                         .clickable {
                             val isCurrentlyAm = hour < 12
@@ -751,7 +1335,7 @@ fun TimePickerRow(hour: Int, minute: Int, onHourChange: (Int) -> Unit, onMinChan
                     Text(
                         period,
                         fontSize = 13.sp,
-                        color = if (amPm == period) AccentBlue else Color.White.copy(0.4f),
+                        color = if (amPm == period) LocalAccentColor.current else Color.White.copy(0.4f),
                         fontWeight = if (amPm == period) FontWeight.Bold else FontWeight.Normal
                     )
                 }
@@ -858,7 +1442,7 @@ fun PulsingOrb(orbState: OrbState, size: Dp) {
     val coreColor = when (orbState) {
         OrbState.ORB -> DangerRed
         OrbState.TIMED -> AccentPurple
-        OrbState.IDLE -> AccentBlue
+        OrbState.IDLE -> LocalAccentColor.current
     }
     val glowColor = when (orbState) {
         OrbState.ORB -> Color(0x60EF5350)
@@ -1210,7 +1794,7 @@ fun PermissionCard(context: Context) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Brush.linearGradient(listOf(AccentBlue, AccentPurple)))
+                    .background(Brush.linearGradient(listOf(LocalAccentColor.current, AccentPurple)))
                     .clickable {
                         context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     }

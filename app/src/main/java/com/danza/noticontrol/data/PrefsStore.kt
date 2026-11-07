@@ -19,6 +19,10 @@ object PrefsKeys {
     val CUSTOM_TO_HOUR = intPreferencesKey("custom_to_hour")
     val CUSTOM_TO_MIN = intPreferencesKey("custom_to_min")
     val HIGH_IMPORTANCE_PKGS = stringPreferencesKey("high_importance_pkgs")
+    val BG_COLOR = longPreferencesKey("bg_color")
+    val BG_MEDIA_URI = stringPreferencesKey("bg_media_uri")
+    val BG_MEDIA_TYPE = stringPreferencesKey("bg_media_type") // "none", "video", "image"
+    val BG_MEDIA_DIM = floatPreferencesKey("bg_media_dim")
 }
 
 class PrefsStore(private val context: Context) {
@@ -65,6 +69,38 @@ class PrefsStore(private val context: Context) {
             it[PrefsKeys.CUSTOM_FROM_MIN] = fromMin
             it[PrefsKeys.CUSTOM_TO_HOUR] = toHour
             it[PrefsKeys.CUSTOM_TO_MIN] = toMin
+        }
+    }
+
+    val bgColor: Flow<Long?> = context.dataStore.data.map { it[PrefsKeys.BG_COLOR] }
+
+    suspend fun saveBgColor(color: Long) {
+        context.dataStore.edit { it[PrefsKeys.BG_COLOR] = color }
+    }
+
+    suspend fun clearBgColor() {
+        context.dataStore.edit { it.remove(PrefsKeys.BG_COLOR) }
+    }
+
+    val bgMediaUri: Flow<String?> = context.dataStore.data.map { it[PrefsKeys.BG_MEDIA_URI] }
+    val bgMediaType: Flow<String> = context.dataStore.data.map { it[PrefsKeys.BG_MEDIA_TYPE] ?: "none" }
+    val bgMediaDim: Flow<Float> = context.dataStore.data.map { it[PrefsKeys.BG_MEDIA_DIM] ?: 0.4f }
+
+    suspend fun saveBgMedia(uri: String, type: String) {
+        context.dataStore.edit {
+            it[PrefsKeys.BG_MEDIA_URI] = uri
+            it[PrefsKeys.BG_MEDIA_TYPE] = type
+        }
+    }
+
+    suspend fun saveBgMediaDim(dim: Float) {
+        context.dataStore.edit { it[PrefsKeys.BG_MEDIA_DIM] = dim }
+    }
+
+    suspend fun clearBgMedia() {
+        context.dataStore.edit {
+            it.remove(PrefsKeys.BG_MEDIA_URI)
+            it[PrefsKeys.BG_MEDIA_TYPE] = "none"
         }
     }
 }

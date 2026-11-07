@@ -3,6 +3,7 @@ package com.danza.noticontrol.ui.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 val GlassWhite = Color(0xCCFFFFFF)
@@ -14,6 +15,8 @@ val AccentPurple = Color(0xFFCE93D8)
 val DeepBackground = Color(0xFF050A14)
 val SurfaceColor = Color(0xFF0D1A2E)
 val DangerRed = Color(0xFFEF5350)
+
+val LocalAccentColor = compositionLocalOf { AccentBlue }
 
 private val DarkColors = darkColorScheme(
     primary = AccentBlue,

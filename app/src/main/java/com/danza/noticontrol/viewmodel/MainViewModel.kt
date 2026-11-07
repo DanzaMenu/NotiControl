@@ -6,16 +6,25 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.palette.graphics.Palette
 import com.danza.noticontrol.data.AppDatabase
 import com.danza.noticontrol.data.PrefsStore
 import com.danza.noticontrol.data.SilenceSession
 import com.danza.noticontrol.data.SilencedNotification
 import com.danza.noticontrol.receiver.SilenceEndReceiver
 import com.danza.noticontrol.service.NotiListenerService
+import com.danza.noticontrol.ui.theme.AccentBlue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 data class ActiveSilence(
@@ -72,6 +81,21 @@ class MainViewModel : ViewModel() {
     private val _highImportancePackages = MutableStateFlow<Set<String>>(emptySet())
     val highImportancePackages: StateFlow<Set<String>> = _highImportancePackages.asStateFlow()
 
+    private val _bgColor = MutableStateFlow<Long?>(null)
+    val bgColor: StateFlow<Long?> = _bgColor.asStateFlow()
+
+    private val _bgMediaUri = MutableStateFlow<String?>(null)
+    val bgMediaUri: StateFlow<String?> = _bgMediaUri.asStateFlow()
+
+    private val _bgMediaType = MutableStateFlow("none")
+    val bgMediaType: StateFlow<String> = _bgMediaType.asStateFlow()
+
+    private val _bgMediaDim = MutableStateFlow(0.4f)
+    val bgMediaDim: StateFlow<Float> = _bgMediaDim.asStateFlow()
+
+    private val _dynamicAccent = MutableStateFlow(AccentBlue.value.toLong())
+    val dynamicAccent: StateFlow<Long> = _dynamicAccent.asStateFlow()
+
     fun init(context: Context) {
         val dao = AppDatabase.get(context).dao()
         val prefs = PrefsStore(context)
@@ -90,6 +114,21 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch { prefs.customToHour.collect { _customToHour.value = it } }
         viewModelScope.launch { prefs.customToMin.collect { _customToMin.value = it } }
         viewModelScope.launch { prefs.highImportancePackages.collect { _highImportancePackages.value = it } }
+        viewModelScope.launch {
+            prefs.bgColor.collect { c ->
+                _bgColor.value = c
+                if (c != null && _bgMediaType.value == "none") computeAccentFromColor(c)
+            }
+        }
+        viewModelScope.launch { prefs.bgMediaUri.collect { _bgMediaUri.value = it } }
+        viewModelScope.launch {
+            prefs.bgMediaType.collect { t ->
+                _bgMediaType.value = t
+                val uri = _bgMediaUri.value
+                if (t != "none" && !uri.isNullOrEmpty()) computeAccentFromMedia(context, uri, t)
+            }
+        }
+        viewModelScope.launch { prefs.bgMediaDim.collect { _bgMediaDim.value = it } }
 
         // Sync live detections from service into ViewModel
         viewModelScope.launch {
@@ -151,6 +190,89 @@ class MainViewModel : ViewModel() {
     fun setBlockMode(context: Context, mode: String) {
         _blockMode.value = mode
         viewModelScope.launch { PrefsStore(context).saveBlockMode(mode) }
+    }
+
+    fun setBgColor(context: Context, color: Long) {
+        _bgColor.value = color
+        computeAccentFromColor(color)
+        viewModelScope.launch { PrefsStore(context).saveBgColor(color) }
+    }
+
+    fun resetBgColor(context: Context) {
+        _bgColor.value = null
+        _dynamicAccent.value = AccentBlue.value.toLong()
+        viewModelScope.launch { PrefsStore(context).clearBgColor() }
+    }
+
+    fun setBgMediaType(context: Context, type: String) {
+        _bgMediaType.value = type
+        viewModelScope.launch { PrefsStore(context).saveBgMedia(_bgMediaUri.value ?: "", type) }
+    }
+
+    fun setBgMedia(context: Context, uri: String, type: String) {
+        _bgMediaUri.value = uri
+        _bgMediaType.value = type
+        if (uri.isNotEmpty()) computeAccentFromMedia(context, uri, type)
+        viewModelScope.launch { PrefsStore(context).saveBgMedia(uri, type) }
+    }
+
+    fun setBgMediaDim(context: Context, dim: Float) {
+        _bgMediaDim.value = dim
+        viewModelScope.launch { PrefsStore(context).saveBgMediaDim(dim) }
+    }
+
+    fun resetBgMedia(context: Context) {
+        _bgMediaUri.value = null
+        _bgMediaType.value = "none"
+        _dynamicAccent.value = AccentBlue.value.toLong()
+        viewModelScope.launch { PrefsStore(context).clearBgMedia() }
+    }
+
+    fun computeAccentFromColor(colorLong: Long) {
+        val c = Color(colorLong.toULong())
+        val hsv = FloatArray(3)
+        android.graphics.Color.RGBToHSV(
+            (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt(), hsv
+        )
+        // Boost saturation and brightness so the accent is vibrant and readable
+        hsv[1] = hsv[1].coerceAtLeast(0.5f)
+        hsv[2] = hsv[2].coerceAtLeast(0.75f).coerceAtMost(1f)
+        val rgb = android.graphics.Color.HSVToColor(hsv)
+        _dynamicAccent.value = Color(rgb).copy(alpha = 1f).value.toLong()
+    }
+
+    fun computeAccentFromMedia(context: Context, uri: String, type: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val bitmap = if (type == "image") {
+                    context.contentResolver.openInputStream(Uri.parse(uri))?.use { stream ->
+                        val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                        BitmapFactory.decodeStream(stream, null, opts)
+                    }
+                } else {
+                    MediaMetadataRetriever().use { r ->
+                        r.setDataSource(context, Uri.parse(uri))
+                        r.getFrameAtTime(0)
+                    }
+                } ?: return@launch
+
+                val palette = Palette.from(bitmap).generate()
+                val argb = palette.getVibrantColor(
+                    palette.getLightVibrantColor(
+                        palette.getDominantColor(AccentBlue.toArgb())
+                    )
+                )
+                // Ensure the accent is bright enough to read on a dark background
+                val hsv = FloatArray(3)
+                android.graphics.Color.colorToHSV(argb, hsv)
+                hsv[1] = hsv[1].coerceAtLeast(0.4f)
+                hsv[2] = hsv[2].coerceAtLeast(0.7f)
+                val boosted = android.graphics.Color.HSVToColor(hsv)
+                _dynamicAccent.value = Color(boosted).copy(alpha = 1f).value.toLong()
+            } catch (_: Exception) {
+                _dynamicAccent.value = AccentBlue.value.toLong()
+            }
+        }
     }
 
     fun toggleBlockedPackage(context: Context, pkg: String) {
