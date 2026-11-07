@@ -23,6 +23,8 @@ object PrefsKeys {
     val BG_MEDIA_URI = stringPreferencesKey("bg_media_uri")
     val BG_MEDIA_TYPE = stringPreferencesKey("bg_media_type") // "none", "video", "image"
     val BG_MEDIA_DIM = floatPreferencesKey("bg_media_dim")
+    val ALWAYS_SILENCED_PKGS = stringPreferencesKey("always_silenced_pkgs")
+    val ALWAYS_SILENCE_ENABLED = booleanPreferencesKey("always_silence_enabled")
 }
 
 class PrefsStore(private val context: Context) {
@@ -95,6 +97,22 @@ class PrefsStore(private val context: Context) {
 
     suspend fun saveBgMediaDim(dim: Float) {
         context.dataStore.edit { it[PrefsKeys.BG_MEDIA_DIM] = dim }
+    }
+
+    val alwaysSilencedPkgs: Flow<Set<String>> = context.dataStore.data.map {
+        val raw = it[PrefsKeys.ALWAYS_SILENCED_PKGS] ?: ""
+        if (raw.isBlank()) emptySet() else raw.split(",").toSet()
+    }
+    val alwaysSilenceEnabled: Flow<Boolean> = context.dataStore.data.map {
+        it[PrefsKeys.ALWAYS_SILENCE_ENABLED] ?: false
+    }
+
+    suspend fun saveAlwaysSilencedPkgs(packages: Set<String>) {
+        context.dataStore.edit { it[PrefsKeys.ALWAYS_SILENCED_PKGS] = packages.joinToString(",") }
+    }
+
+    suspend fun saveAlwaysSilenceEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PrefsKeys.ALWAYS_SILENCE_ENABLED] = enabled }
     }
 
     suspend fun clearBgMedia() {

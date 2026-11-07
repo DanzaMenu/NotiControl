@@ -44,17 +44,7 @@ fun LogScreen(
     val context = LocalContext.current
     val sessions by viewModel.sessions.collectAsState()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(Color(0xFF0A1628), Color(0xFF050A14)),
-                    center = Offset.Unspecified,
-                    radius = 1200f
-                )
-            )
-    ) {
+    AppBackground(viewModel = viewModel) {
 
         Column(
             modifier = Modifier

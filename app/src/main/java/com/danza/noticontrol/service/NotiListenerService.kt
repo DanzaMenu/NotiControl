@@ -28,6 +28,9 @@ class NotiListenerService : NotificationListenerService() {
         var instance: NotiListenerService? = null
         val isConnected = kotlinx.coroutines.flow.MutableStateFlow(false)
         val highImportancePackages = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+        var alwaysSilencedPackages: Set<String> = emptySet()
+        var alwaysSilenceEnabled: Boolean = false
+        var alwaysSilenceSessionId: Long = -1L
     }
 
     override fun onListenerConnected() {
@@ -45,11 +48,43 @@ class NotiListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         sbn ?: return
-        Log.d("NotiControl", "onNotificationPosted: pkg=${sbn.packageName} isSilencing=$isSilencing sessionId=$currentSessionId")
-        if (!isSilencing || currentSessionId < 0) return
+        Log.d("NotiControl", "onNotificationPosted: pkg=${sbn.packageName} isSilencing=$isSilencing sessionId=$currentSessionId alwaysSilenceEnabled=$alwaysSilenceEnabled")
 
         val pkg = sbn.packageName ?: return
         if (pkg == packageName) return
+
+        // Always-silence: dismiss immediately regardless of session state
+        if (alwaysSilenceEnabled && pkg in alwaysSilencedPackages) {
+            Log.d("NotiControl", "Always-silence blocking: $pkg")
+            try { cancelNotification(sbn.key) } catch (_: Exception) {}
+            scope.launch {
+                val dao = AppDatabase.get(applicationContext).dao()
+                // Create a persistent always-silence session on first use
+                if (alwaysSilenceSessionId < 0) {
+                    alwaysSilenceSessionId = dao.insertSession(
+                        com.danza.noticontrol.data.SilenceSession(
+                            startTime = System.currentTimeMillis(),
+                            endTime = Long.MAX_VALUE,
+                            durationMinutes = -1
+                        )
+                    )
+                }
+                val extras = sbn.notification?.extras
+                dao.insertNotification(
+                    SilencedNotification(
+                        sessionId = alwaysSilenceSessionId,
+                        appName = getAppName(pkg),
+                        appPackage = pkg,
+                        title = extras?.getCharSequence("android.title")?.toString() ?: "",
+                        text = extras?.getCharSequence("android.text")?.toString() ?: "",
+                        receivedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+            return
+        }
+
+        if (!isSilencing || currentSessionId < 0) return
 
         // Skip group summary notifications (the invisible "container" Android uses to group notis)
         val flags = sbn.notification?.flags ?: 0

@@ -21,6 +21,7 @@ import com.danza.noticontrol.data.SilencedNotification
 import com.danza.noticontrol.receiver.SilenceEndReceiver
 import com.danza.noticontrol.service.NotiListenerService
 import com.danza.noticontrol.ui.theme.AccentBlue
+import com.danza.noticontrol.ui.theme.AccentPurple
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -96,6 +97,15 @@ class MainViewModel : ViewModel() {
     private val _dynamicAccent = MutableStateFlow(AccentBlue.value.toLong())
     val dynamicAccent: StateFlow<Long> = _dynamicAccent.asStateFlow()
 
+    private val _secondaryAccent = MutableStateFlow(AccentPurple.value.toLong())
+    val secondaryAccent: StateFlow<Long> = _secondaryAccent.asStateFlow()
+
+    private val _alwaysSilencedPackages = MutableStateFlow<Set<String>>(emptySet())
+    val alwaysSilencedPackages: StateFlow<Set<String>> = _alwaysSilencedPackages.asStateFlow()
+
+    private val _alwaysSilenceEnabled = MutableStateFlow(false)
+    val alwaysSilenceEnabled: StateFlow<Boolean> = _alwaysSilenceEnabled.asStateFlow()
+
     fun init(context: Context) {
         val dao = AppDatabase.get(context).dao()
         val prefs = PrefsStore(context)
@@ -129,6 +139,14 @@ class MainViewModel : ViewModel() {
             }
         }
         viewModelScope.launch { prefs.bgMediaDim.collect { _bgMediaDim.value = it } }
+        viewModelScope.launch { prefs.alwaysSilencedPkgs.collect {
+            _alwaysSilencedPackages.value = it
+            NotiListenerService.alwaysSilencedPackages = it
+        }}
+        viewModelScope.launch { prefs.alwaysSilenceEnabled.collect {
+            _alwaysSilenceEnabled.value = it
+            NotiListenerService.alwaysSilenceEnabled = it
+        }}
 
         // Sync live detections from service into ViewModel
         viewModelScope.launch {
@@ -201,6 +219,7 @@ class MainViewModel : ViewModel() {
     fun resetBgColor(context: Context) {
         _bgColor.value = null
         _dynamicAccent.value = AccentBlue.value.toLong()
+        _secondaryAccent.value = AccentPurple.value.toLong()
         viewModelScope.launch { PrefsStore(context).clearBgColor() }
     }
 
@@ -225,7 +244,23 @@ class MainViewModel : ViewModel() {
         _bgMediaUri.value = null
         _bgMediaType.value = "none"
         _dynamicAccent.value = AccentBlue.value.toLong()
+        _secondaryAccent.value = AccentPurple.value.toLong()
         viewModelScope.launch { PrefsStore(context).clearBgMedia() }
+    }
+
+    fun toggleAlwaysSilenceEnabled(context: Context) {
+        val newVal = !_alwaysSilenceEnabled.value
+        _alwaysSilenceEnabled.value = newVal
+        NotiListenerService.alwaysSilenceEnabled = newVal
+        viewModelScope.launch { PrefsStore(context).saveAlwaysSilenceEnabled(newVal) }
+    }
+
+    fun toggleAlwaysSilencedPackage(context: Context, pkg: String) {
+        val current = _alwaysSilencedPackages.value.toMutableSet()
+        if (pkg in current) current.remove(pkg) else current.add(pkg)
+        _alwaysSilencedPackages.value = current
+        NotiListenerService.alwaysSilencedPackages = current
+        viewModelScope.launch { PrefsStore(context).saveAlwaysSilencedPkgs(current) }
     }
 
     fun computeAccentFromColor(colorLong: Long) {
@@ -239,6 +274,11 @@ class MainViewModel : ViewModel() {
         hsv[2] = hsv[2].coerceAtLeast(0.75f).coerceAtMost(1f)
         val rgb = android.graphics.Color.HSVToColor(hsv)
         _dynamicAccent.value = Color(rgb).copy(alpha = 1f).value.toLong()
+        // Secondary accent: hue-shifted 150 degrees from primary
+        val hsv2 = hsv.copyOf()
+        hsv2[0] = (hsv2[0] + 150f) % 360f
+        val rgb2 = android.graphics.Color.HSVToColor(hsv2)
+        _secondaryAccent.value = Color(rgb2).copy(alpha = 1f).value.toLong()
     }
 
     fun computeAccentFromMedia(context: Context, uri: String, type: String) {
@@ -257,20 +297,26 @@ class MainViewModel : ViewModel() {
                 } ?: return@launch
 
                 val palette = Palette.from(bitmap).generate()
+                // Primary: vibrant swatch
                 val argb = palette.getVibrantColor(
                     palette.getLightVibrantColor(
                         palette.getDominantColor(AccentBlue.toArgb())
                     )
                 )
-                // Ensure the accent is bright enough to read on a dark background
                 val hsv = FloatArray(3)
                 android.graphics.Color.colorToHSV(argb, hsv)
                 hsv[1] = hsv[1].coerceAtLeast(0.4f)
                 hsv[2] = hsv[2].coerceAtLeast(0.7f)
                 val boosted = android.graphics.Color.HSVToColor(hsv)
                 _dynamicAccent.value = Color(boosted).copy(alpha = 1f).value.toLong()
+                // Secondary: hue-shifted 150° from the boosted primary (same as solid color path)
+                val hsv2 = hsv.copyOf()
+                hsv2[0] = (hsv2[0] + 150f) % 360f
+                val rgb2 = android.graphics.Color.HSVToColor(hsv2)
+                _secondaryAccent.value = Color(rgb2).copy(alpha = 1f).value.toLong()
             } catch (_: Exception) {
                 _dynamicAccent.value = AccentBlue.value.toLong()
+                _secondaryAccent.value = AccentPurple.value.toLong()
             }
         }
     }

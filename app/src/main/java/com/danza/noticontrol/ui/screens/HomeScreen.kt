@@ -89,7 +89,12 @@ fun HomeScreen(
     val bgMediaDim by viewModel.bgMediaDim.collectAsState()
     val dynamicAccentLong by viewModel.dynamicAccent.collectAsState()
     val accent = Color(dynamicAccentLong.toULong())
+    val secondaryAccentLong by viewModel.secondaryAccent.collectAsState()
+    val secondaryAccent = Color(secondaryAccentLong.toULong())
+    val alwaysSilencedPackages by viewModel.alwaysSilencedPackages.collectAsState()
+    val alwaysSilenceEnabled by viewModel.alwaysSilenceEnabled.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
+    var showAlwaysSilencePicker by remember { mutableStateOf(false) }
 
     // Keep live notifications loaded for the active session
     LaunchedEffect(activeSilence?.sessionId) {
@@ -118,7 +123,7 @@ fun HomeScreen(
         ModalBottomSheet(
             onDismissRequest = { showSettings = false },
             sheetState = settingsSheetState,
-            containerColor = Color(0xFF141414)
+            containerColor = Color(0xFF0D1B2E)
         ) {
             Column(
                 modifier = Modifier
@@ -880,27 +885,101 @@ fun HomeScreen(
                 )
             }
 
-            // Orb — tap to toggle indefinite silence, long-press to pin widget
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .pointerInput(isSilenced, isOrbMode) {
-                        detectTapGestures(
-                            onTap = {
-                                when {
-                                    isOrbMode -> viewModel.endSilenceEarly(context)
-                                    !isSilenced -> viewModel.startOrbSilence(context)
+            // Always-silence app picker
+            if (showAlwaysSilencePicker) {
+                val pickerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                val installedApps = remember {
+                    context.packageManager.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+                        .filter { it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM == 0 }
+                        .map { it.packageName to context.packageManager.getApplicationLabel(it).toString() }
+                        .sortedBy { it.second }
+                }
+                ModalBottomSheet(
+                    onDismissRequest = { showAlwaysSilencePicker = false },
+                    sheetState = pickerSheetState,
+                    containerColor = Color(0xFF0D1B2E),
+                    dragHandle = null
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text("Always Silence", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("These apps are always silenced, even when session silence is off.", fontSize = 12.sp, color = Color.White.copy(0.5f))
+                        Spacer(Modifier.height(14.dp))
+                        LazyColumn(modifier = Modifier.heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            items(installedApps, key = { it.first }) { (pkg, name) ->
+                                val selected = pkg in alwaysSilencedPackages
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selected) LocalAccentColor.current.copy(0.15f) else Color.White.copy(0.04f))
+                                        .clickable { viewModel.toggleAlwaysSilencedPackage(context, pkg) }
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(name, fontSize = 14.sp, color = Color.White, modifier = Modifier.weight(1f))
+                                    if (selected) {
+                                        Icon(Icons.Default.Check, contentDescription = null, tint = LocalAccentColor.current, modifier = Modifier.size(18.dp))
+                                    }
                                 }
-                            },
-                            onLongPress = { showPinDialog = true }
-                        )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        TextButton(onClick = { showAlwaysSilencePicker = false }, modifier = Modifier.align(Alignment.End)) {
+                            Text("Done", color = LocalAccentColor.current, fontWeight = FontWeight.Bold)
+                        }
                     }
+                }
+            }
+
+            // Orb row: session-silence bell (left) + always-silence bell (right)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
             ) {
-                PulsingOrb(orbState = when {
-                    isOrbMode -> OrbState.ORB
-                    isSilenced -> OrbState.TIMED
-                    else -> OrbState.IDLE
-                }, size = 190.dp)
+                // Left bell — session silence orb
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .pointerInput(isSilenced, isOrbMode) {
+                            detectTapGestures(
+                                onTap = {
+                                    when {
+                                        isOrbMode -> viewModel.endSilenceEarly(context)
+                                        !isSilenced -> viewModel.startOrbSilence(context)
+                                    }
+                                },
+                                onLongPress = { showPinDialog = true }
+                            )
+                        }
+                ) {
+                    PulsingOrb(orbState = when {
+                        isOrbMode -> OrbState.ORB
+                        isSilenced -> OrbState.TIMED
+                        else -> OrbState.IDLE
+                    }, size = 190.dp)
+                }
+
+                Spacer(Modifier.width(4.dp))
+
+                // Right bell — always-silence toggle (tap = on/off, long-press = pick apps)
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .pointerInput(alwaysSilenceEnabled) {
+                            detectTapGestures(
+                                onTap = { viewModel.toggleAlwaysSilenceEnabled(context) },
+                                onLongPress = { showAlwaysSilencePicker = true }
+                            )
+                        }
+                ) {
+                    PulsingOrb(
+                        orbState = if (alwaysSilenceEnabled) OrbState.TIMED else OrbState.IDLE,
+                        size = 190.dp,
+                        colorOverride = if (alwaysSilenceEnabled) secondaryAccent else Color(0xFF1A2A3A)
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -914,6 +993,7 @@ fun HomeScreen(
                         .background(when {
                             isOrbMode -> DangerRed
                             isSilenced -> AccentPurple
+                            alwaysSilenceEnabled -> LocalAccentColor.current
                             else -> Color(0xFF4CAF50)
                         })
                 )
@@ -922,6 +1002,7 @@ fun HomeScreen(
                     when {
                         isOrbMode -> "Silencing All — Tap to Stop"
                         isSilenced -> "Silence Mode On"
+                        alwaysSilenceEnabled -> "Always Silence Active"
                         else -> "All notifications allowed"
                     },
                     fontSize = 15.sp,
@@ -930,7 +1011,7 @@ fun HomeScreen(
                 )
             }
 
-            if (!isSilenced) {
+            if (!isSilenced && !alwaysSilenceEnabled) {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Tap the bell to silence everything instantly",
@@ -945,7 +1026,6 @@ fun HomeScreen(
             if (!hasListenerPermission) {
                 PermissionCard(context)
             } else if (isOrbMode) {
-                // Orb mode — just show the live silenced notifications
                 OrbSilenceNotificationsCard(notifications = liveNotifications)
             } else if (isSilenced && activeSilence != null) {
                 ActiveSilenceCard(
@@ -953,6 +1033,33 @@ fun HomeScreen(
                     notifications = liveNotifications,
                     onEndEarly = { viewModel.endSilenceEarly(context) }
                 )
+            } else if (alwaysSilenceEnabled) {
+                // Always silence active — show which apps are being silenced
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .glassSurface(cornerRadius = 20.dp, accentColor = secondaryAccent.copy(alpha = 0.06f))
+                        .padding(16.dp)
+                ) {
+                    Column {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("ALWAYS SILENCED", fontSize = 10.sp, color = Color.White.copy(0.35f), letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
+                            Box(modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(secondaryAccent.copy(0.2f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                Text("${alwaysSilencedPackages.size} apps", fontSize = 11.sp, color = secondaryAccent, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        if (alwaysSilencedPackages.isEmpty()) {
+                            Text("No apps selected", fontSize = 13.sp, color = Color.White.copy(0.25f))
+                            Text("Long-press the right bell to pick apps.", fontSize = 12.sp, color = Color.White.copy(0.18f))
+                        } else {
+                            Text("Silencing ${alwaysSilencedPackages.size} app${if (alwaysSilencedPackages.size == 1) "" else "s"} permanently.", fontSize = 13.sp, color = Color.White.copy(0.6f))
+                            Spacer(Modifier.height(4.dp))
+                            Text("Long-press the right bell to manage.", fontSize = 12.sp, color = Color.White.copy(0.25f))
+                        }
+                    }
+                }
             } else {
                 // Block mode toggle
                 BlockModeToggle(
@@ -1403,6 +1510,58 @@ fun TimeScrollColumn(
     }
 }
 
+@Composable
+fun AppBackground(viewModel: MainViewModel, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val context = LocalContext.current
+    val savedBgColor by viewModel.bgColor.collectAsState()
+    val bgMediaUri by viewModel.bgMediaUri.collectAsState()
+    val bgMediaType by viewModel.bgMediaType.collectAsState()
+    val bgMediaDim by viewModel.bgMediaDim.collectAsState()
+    val inf = rememberInfiniteTransition(label = "bg2")
+    val bgShift by inf.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(8000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "bgShift2"
+    )
+    Box(modifier = modifier.fillMaxSize()) {
+        if (bgMediaType == "video" && !bgMediaUri.isNullOrEmpty()) {
+            val exoPlayer = remember(bgMediaUri) {
+                ExoPlayer.Builder(context.applicationContext).build().apply {
+                    setMediaItem(MediaItem.fromUri(Uri.parse(bgMediaUri)))
+                    repeatMode = Player.REPEAT_MODE_ALL
+                    volume = 0f
+                    videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                    prepare()
+                    playWhenReady = true
+                }
+            }
+            DisposableEffect(exoPlayer) { onDispose { exoPlayer.release() } }
+            AndroidView(
+                factory = { ctx -> android.view.SurfaceView(ctx).also { sv -> exoPlayer.setVideoSurfaceView(sv) } },
+                update = { sv -> exoPlayer.setVideoSurfaceView(sv as android.view.SurfaceView) },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (bgMediaType == "image" && bgMediaUri != null) {
+            androidx.compose.foundation.Image(
+                painter = coil.compose.rememberAsyncImagePainter(bgMediaUri),
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(modifier = Modifier.fillMaxSize().drawBehind {
+                val bgCenter = if (savedBgColor != null) Color(savedBgColor!!.toULong()) else Color(0xFF0B1E3D)
+                val bgEdge = if (savedBgColor != null) Color(bgCenter.red * 0.4f, bgCenter.green * 0.4f, bgCenter.blue * 0.4f) else Color(0xFF050A14)
+                drawRect(brush = Brush.radialGradient(colors = listOf(bgCenter, bgEdge), center = Offset(size.width * 0.5f, size.height * (0.3f + bgShift * 0.08f)), radius = size.height * 0.9f))
+            })
+        }
+        if (bgMediaType != "none" && bgMediaUri != null) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = bgMediaDim)))
+        }
+        content()
+    }
+}
+
 private fun calcDurationMins(fromH: Int, fromM: Int, toH: Int, toM: Int): Int {
     var from = fromH * 60 + fromM
     var to = toH * 60 + toM
@@ -1425,7 +1584,7 @@ private fun formatTime12h(customFromHour: Int, h: Int, m: Int, fromH: Int, fromM
 enum class OrbState { IDLE, TIMED, ORB }
 
 @Composable
-fun PulsingOrb(orbState: OrbState, size: Dp) {
+fun PulsingOrb(orbState: OrbState, size: Dp, colorOverride: Color? = null) {
     val isSilenced = orbState != OrbState.IDLE
     val inf = rememberInfiniteTransition(label = "orb")
     val pulse by inf.animateFloat(
@@ -1439,16 +1598,12 @@ fun PulsingOrb(orbState: OrbState, size: Dp) {
         label = "ring"
     )
 
-    val coreColor = when (orbState) {
+    val coreColor = colorOverride ?: when (orbState) {
         OrbState.ORB -> DangerRed
         OrbState.TIMED -> AccentPurple
         OrbState.IDLE -> LocalAccentColor.current
     }
-    val glowColor = when (orbState) {
-        OrbState.ORB -> Color(0x60EF5350)
-        OrbState.TIMED -> Color(0x60CE93D8)
-        OrbState.IDLE -> Color(0x504FC3F7)
-    }
+    val glowColor = coreColor.copy(alpha = if (isSilenced) 0.72f else 0.38f)
 
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size)) {
         Box(
