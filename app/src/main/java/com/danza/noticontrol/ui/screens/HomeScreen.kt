@@ -169,6 +169,9 @@ fun HomeScreen(
                     context.contentResolver,
                     "enabled_notification_listeners"
                 )?.contains(context.packageName) == true
+                if (AppUpdater.hasCachedApk(context)) {
+                    AppUpdater.installCachedApk(context)
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

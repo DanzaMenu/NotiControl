@@ -79,11 +79,40 @@ object AppUpdater {
         }
     }
 
+    private fun getApkFile(context: Context): File {
+        val updateDir = File(context.cacheDir, "updates")
+        updateDir.mkdirs()
+        return File(updateDir, "update.apk")
+    }
+
+    private fun launchInstallIntent(context: Context, apkFile: File) {
+        val uri: Uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            apkFile
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    }
+
+    fun hasCachedApk(context: Context): Boolean {
+        return getApkFile(context).exists()
+    }
+
+    fun installCachedApk(context: Context) {
+        val apkFile = getApkFile(context)
+        if (apkFile.exists()) {
+            launchInstallIntent(context, apkFile)
+        }
+    }
+
     suspend fun downloadAndInstall(context: Context, url: String) {
         withContext(Dispatchers.IO) {
-            val updateDir = File(context.cacheDir, "updates")
-            updateDir.mkdirs()
-            val apkFile = File(updateDir, "update.apk")
+            val apkFile = getApkFile(context)
 
             val conn = URL(url).openConnection() as HttpURLConnection
             conn.setRequestProperty("User-Agent", "NotiControl-Updater")
@@ -97,17 +126,7 @@ object AppUpdater {
             conn.disconnect()
 
             withContext(Dispatchers.Main) {
-                val uri: Uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    apkFile
-                )
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "application/vnd.android.package-archive")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
+                launchInstallIntent(context, apkFile)
             }
         }
     }

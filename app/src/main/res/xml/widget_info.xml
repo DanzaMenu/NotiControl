@@ -10,5 +10,5 @@
     android:resizeMode="horizontal|vertical"
     android:initialLayout="@layout/widget_silence"
     android:widgetCategory="home_screen"
-    android:previewImage="@drawable/widget_bg_idle"
+    android:previewImage="@drawable/widget_orb_idle"
     android:description="@string/app_name" />
