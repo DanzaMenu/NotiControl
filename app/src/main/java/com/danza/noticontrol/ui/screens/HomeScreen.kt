@@ -89,7 +89,7 @@ fun HomeScreen(
 
     if (showUpdateDialog && updateInfo != null) {
         AlertDialog(
-            onDismissRequest = { showUpdateDialog = false },
+            onDismissRequest = { },
             containerColor = Color(0xFF0D1B2E),
             title = {
                 Text(
@@ -135,7 +135,6 @@ fun HomeScreen(
                                 android.widget.Toast.makeText(context, "Download failed", android.widget.Toast.LENGTH_SHORT).show()
                             }
                             isDownloading = false
-                            showUpdateDialog = false
                         }
                     },
                     enabled = !isDownloading
@@ -143,13 +142,7 @@ fun HomeScreen(
                     Text("Update", color = if (isDownloading) Color.Gray else AccentBlue, fontWeight = FontWeight.Bold)
                 }
             },
-            dismissButton = {
-                if (!isDownloading) {
-                    TextButton(onClick = { showUpdateDialog = false }) {
-                        Text("Later", color = Color.White.copy(0.5f))
-                    }
-                }
-            }
+            dismissButton = { }
         )
     }
 
